@@ -1,12 +1,19 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import dynamic from "next/dynamic"
 import { Header } from "@/components/uav/header"
 import { SidebarNav } from "@/components/uav/sidebar-nav"
 import { TelemetryPanel } from "@/components/uav/telemetry-panel"
 import { AltitudeChart } from "@/components/uav/altitude-chart"
 import { SpeedChart } from "@/components/uav/speed-chart"
-import { MapView } from "@/components/uav/map-view"
+const MapView = dynamic(
+  () => import("@/components/uav/map-view").then((mod) => mod.MapView),
+  {
+    ssr: false,
+    loading: () => <div className="h-full w-full rounded-lg bg-secondary/10" />
+  }
+)
 import { CameraFeed } from "@/components/uav/camera-feed"
 import { FlightControls } from "@/components/uav/flight-controls"
 import { SystemAlerts } from "@/components/uav/system-alerts"
@@ -50,12 +57,12 @@ const generateChartData = (points: number) => {
   let altitude = 40
   let groundSpeed = 8
   let airSpeed = 10
-  
+
   for (let i = 0; i < points; i++) {
     altitude += (Math.random() - 0.5) * 5
     groundSpeed += (Math.random() - 0.5) * 1
     airSpeed += (Math.random() - 0.5) * 1.5
-    
+
     data.push({
       time: `${i}s`,
       altitude: Math.max(0, altitude),
@@ -127,10 +134,10 @@ export default function UAVDashboard() {
   // Simulate telemetry updates (only after mount to avoid hydration mismatch)
   useEffect(() => {
     if (!isMounted) return
-    
+
     const interval = setInterval(() => {
       setTelemetry(generateTelemetry(isFlying))
-      
+
       // Update chart data with new point
       setAltitudeData(prev => {
         const newData = [...prev.slice(1)]
@@ -187,29 +194,29 @@ export default function UAVDashboard() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      <Header 
+      <Header
         isConnected={isConnected}
         signalStrength={92}
         activeVehicle={activeVehicle}
         vehicles={vehicles}
         onVehicleChange={setActiveVehicle}
       />
-      
+
       <div className="flex-1 flex overflow-hidden">
         <SidebarNav activeTab={activeTab} onTabChange={setActiveTab} />
-        
+
         <main className="flex-1 overflow-auto p-4">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full">
             {/* Left column - Map & Camera */}
             <div className="lg:col-span-5 flex flex-col gap-4">
               <div className="flex-1 min-h-[300px]">
-                <MapView 
+                <MapView
                   waypoints={initialWaypoints}
                   currentPosition={currentPosition}
                 />
               </div>
               <div className="h-[280px]">
-                <CameraFeed 
+                <CameraFeed
                   isRecording={isRecording}
                   onToggleRecord={() => setIsRecording(!isRecording)}
                 />
@@ -225,7 +232,7 @@ export default function UAVDashboard() {
 
             {/* Right column - Controls & Status */}
             <div className="lg:col-span-3 flex flex-col gap-4">
-              <FlightControls 
+              <FlightControls
                 isFlying={isFlying}
                 throttle={throttle}
                 onThrottleChange={setThrottle}
@@ -233,7 +240,7 @@ export default function UAVDashboard() {
                 onLand={handleLand}
                 onReturnHome={handleReturnHome}
               />
-              <MissionStatus 
+              <MissionStatus
                 missionName="Area Survey Alpha"
                 progress={67}
                 waypoints={missionWaypoints}

@@ -3,6 +3,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Maximize2, Layers, MapPin, Navigation } from "lucide-react"
+import L, { LatLngExpression, Map as LeafletMap } from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { useMemo, useEffect, useRef } from 'react'
 
 interface WaypointData {
   id: number
@@ -18,20 +21,113 @@ interface MapViewProps {
 }
 
 export function MapView({ waypoints, currentPosition }: MapViewProps) {
-  // Convert coordinates to SVG positions (simplified for demo)
-  const mapToSvg = (lat: number, lng: number) => {
-    const minLat = 37.76
-    const maxLat = 37.80
-    const minLng = -122.46
-    const maxLng = -122.40
-    
-    const x = ((lng - minLng) / (maxLng - minLng)) * 100
-    const y = 100 - ((lat - minLat) / (maxLat - minLat)) * 100
-    
-    return { x, y }
+  const mapRef = useRef<LeafletMap | null>(null)
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const markersLayerRef = useRef<L.LayerGroup | null>(null)
+  const pathLayerRef = useRef<L.Polyline | null>(null)
+
+  const center: LatLngExpression = [currentPosition.lat, currentPosition.lng]
+
+  const path = useMemo(() => waypoints.map((w) => [w.lat, w.lng] as LatLngExpression), [waypoints])
+
+  const esriSatellite = {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution:
+      'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
   }
 
-  const currentPos = mapToSvg(currentPosition.lat, currentPosition.lng)
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return
+
+    const map = L.map(mapContainerRef.current, {
+      center,
+      zoom: 16,
+      scrollWheelZoom: true,
+      zoomControl: true,
+    })
+
+    L.tileLayer(esriSatellite.url, {
+      attribution: esriSatellite.attribution,
+    }).addTo(map)
+
+    const pathLayer = L.polyline(path, {
+      color: '#4f46e5',
+      dashArray: '6 6',
+      weight: 3,
+    }).addTo(map)
+
+    const markers = L.layerGroup(
+      waypoints.map((wp) => {
+        const marker = L.circleMarker([wp.lat, wp.lng], {
+          radius: wp.type === 'home' ? 8 : wp.type === 'current' ? 6 : 5,
+          color: wp.type === 'home' ? '#f59e0b' : wp.type === 'current' ? '#06b6d4' : '#7c3aed',
+          fillColor: wp.type === 'home' ? '#fbbf24' : wp.type === 'current' ? '#67e8f9' : '#a78bfa',
+          weight: 1,
+          fillOpacity: 1,
+        })
+
+        marker.bindPopup(`ID: ${wp.id}<br/>Lat: ${wp.lat.toFixed(5)}<br/>Lng: ${wp.lng.toFixed(5)}<br/>Alt: ${wp.altitude}`)
+        return marker
+      })
+    ).addTo(map)
+
+    const uavMarker = L.circleMarker([currentPosition.lat, currentPosition.lng], {
+      radius: 8,
+      color: '#ef4444',
+      fillColor: '#fca5a5',
+      weight: 1,
+      fillOpacity: 1,
+    }).bindPopup(`UAV<br/>${currentPosition.lat.toFixed(5)}, ${currentPosition.lng.toFixed(5)}`)
+
+    markers.addLayer(uavMarker)
+
+    mapRef.current = map
+    markersLayerRef.current = markers
+    pathLayerRef.current = pathLayer
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+      markersLayerRef.current = null
+      pathLayerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    map.setView(center, map.getZoom())
+
+    if (pathLayerRef.current) {
+      pathLayerRef.current.setLatLngs(path)
+    }
+
+    if (markersLayerRef.current) {
+      markersLayerRef.current.clearLayers()
+
+      waypoints.forEach((wp) => {
+        const marker = L.circleMarker([wp.lat, wp.lng], {
+          radius: wp.type === 'home' ? 8 : wp.type === 'current' ? 6 : 5,
+          color: wp.type === 'home' ? '#f59e0b' : wp.type === 'current' ? '#06b6d4' : '#7c3aed',
+          fillColor: wp.type === 'home' ? '#fbbf24' : wp.type === 'current' ? '#67e8f9' : '#a78bfa',
+          weight: 1,
+          fillOpacity: 1,
+        })
+        marker.bindPopup(`ID: ${wp.id}<br/>Lat: ${wp.lat.toFixed(5)}<br/>Lng: ${wp.lng.toFixed(5)}<br/>Alt: ${wp.altitude}`)
+        markersLayerRef.current?.addLayer(marker)
+      })
+
+      const uavMarker = L.circleMarker([currentPosition.lat, currentPosition.lng], {
+        radius: 8,
+        color: '#ef4444',
+        fillColor: '#fca5a5',
+        weight: 1,
+        fillOpacity: 1,
+      }).bindPopup(`UAV<br/>${currentPosition.lat.toFixed(5)}, ${currentPosition.lng.toFixed(5)}`)
+      markersLayerRef.current.addLayer(uavMarker)
+    }
+  }, [currentPosition, path, waypoints])
 
   return (
     <Card className="bg-card border-border h-full flex flex-col">
@@ -52,100 +148,8 @@ export function MapView({ waypoints, currentPosition }: MapViewProps) {
         </div>
       </CardHeader>
       <CardContent className="flex-1 p-2">
-        <div className="relative w-full h-full min-h-[300px] bg-secondary/30 rounded-lg overflow-hidden border border-border/50">
-          {/* Grid overlay */}
-          <svg className="absolute inset-0 w-full h-full opacity-20">
-            <defs>
-              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-          
-          {/* Map content */}
-          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-            {/* Flight path line */}
-            <path
-              d={waypoints.map((wp, i) => {
-                const pos = mapToSvg(wp.lat, wp.lng)
-                return `${i === 0 ? 'M' : 'L'} ${pos.x} ${pos.y}`
-              }).join(' ')}
-              fill="none"
-              stroke="oklch(0.72 0.19 165)"
-              strokeWidth="0.5"
-              strokeDasharray="2 2"
-              opacity={0.6}
-            />
-            
-            {/* Waypoints */}
-            {waypoints.map((wp) => {
-              const pos = mapToSvg(wp.lat, wp.lng)
-              return (
-                <g key={wp.id}>
-                  {wp.type === "home" ? (
-                    <circle
-                      cx={pos.x}
-                      cy={pos.y}
-                      r="2.5"
-                      fill="oklch(0.75 0.15 85)"
-                      stroke="oklch(0.12 0.005 260)"
-                      strokeWidth="0.5"
-                    />
-                  ) : wp.type === "current" ? (
-                    <>
-                      <circle
-                        cx={pos.x}
-                        cy={pos.y}
-                        r="4"
-                        fill="oklch(0.72 0.19 165)"
-                        opacity={0.3}
-                      />
-                      <circle
-                        cx={pos.x}
-                        cy={pos.y}
-                        r="2"
-                        fill="oklch(0.72 0.19 165)"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <circle
-                        cx={pos.x}
-                        cy={pos.y}
-                        r="1.5"
-                        fill="oklch(0.65 0.18 220)"
-                        stroke="oklch(0.12 0.005 260)"
-                        strokeWidth="0.3"
-                      />
-                      <text
-                        x={pos.x + 3}
-                        y={pos.y + 1}
-                        fontSize="3"
-                        fill="oklch(0.6 0 0)"
-                      >
-                        {wp.id}
-                      </text>
-                    </>
-                  )}
-                </g>
-              )
-            })}
-            
-            {/* UAV icon */}
-            <g transform={`translate(${currentPos.x}, ${currentPos.y})`}>
-              <circle r="3" fill="oklch(0.72 0.19 165)" opacity={0.3}>
-                <animate attributeName="r" values="3;6;3" dur="2s" repeatCount="indefinite" />
-                <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
-              </circle>
-              <polygon
-                points="0,-3 2,2 0,1 -2,2"
-                fill="oklch(0.72 0.19 165)"
-                stroke="oklch(0.95 0 0)"
-                strokeWidth="0.3"
-              />
-            </g>
-          </svg>
+        <div className="relative w-full h-full min-h-[300px] rounded-lg overflow-hidden border border-border/50">
+          <div ref={mapContainerRef} className="h-full w-full" />
 
           {/* Map info overlay */}
           <div className="absolute bottom-2 left-2 bg-card/90 backdrop-blur-sm rounded px-2 py-1 text-xs border border-border/50">
